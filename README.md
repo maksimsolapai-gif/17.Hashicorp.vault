@@ -15,15 +15,63 @@
 ## 🔐 Homework Assignment 1: Vault in Docker Compose — KV, policy, AppRole
 
 ### Vault Status in Dev-mode
-* **Sealed:** `false`. In dev mode, Vault automatically initializes and unseals itself upon startup.
-* **Storage:** `inmem` (data is stored in RAM and gets wiped when the container restarts).
+```
+docker compose exec -it vault sh
+max@ubuntu:~/Project/17.Vault$ docker compose exec -it vault sh
 
-### ❓ Main Question: Difference between `delete`, `undelete`, and `destroy`
+/ # export VAULT_ADDR='http://127.0.0.1:8200'
+/ # export VAULT_TOKEN='root'
+/ #
+/ # vault status         # Checking status
+
+Key             Value
+---             -----
+Seal Type       shamir
+Initialized     true
+Sealed          false
+Total Shares    1
+Threshold       1
+Version         1.17.6
+Build Date      2024-09-24T19:48:40Z
+Storage Type    inmem
+Cluster Name    vault-cluster-f833ba44
+Cluster ID      929cf367-41e5-8399-9743-65ba0bb9f948
+HA Enabled      false
+```
+
+### Description of the `vault status` output:
+•	Sealed: false. Since it was launched in dev-mode, Vault automatically initializes and unseals upon startup.
+
+•	Storage: inmem (in-memory). Data is not preserved when the container restarts.
+
+
+## Working with KV v2 secrets
+vault kv put secret/app/db username=alice password=s3cret
+<img width="975" height="319" alt="image" src="https://github.com/user-attachments/assets/e0697dcf-c9e6-4048-8ce9-01be837c920f" />
+
+```
+vault kv get secret/app/db
+vault kv get -field=password secret/app/db
+vault kv put secret/app/db username=admin password=new_awesome_pass
+vault kv get -version=1 secret/app/db 
+vault kv metadata get secret/app/db
+```
+<img width="975" height="310" alt="image" src="https://github.com/user-attachments/assets/43f4d09d-0a02-41ba-ad40-a22460404eff" />
+
+### The difference between delete, undelete, and destroy
+
+```
+/ # vault kv delete secret/app/db
+Success! Data deleted (if it existed) at: secret/data/app/db
+```
+<img width="975" height="384" alt="image" src="https://github.com/user-attachments/assets/d468181c-ee87-4311-8732-202df6406338" />
+
+###  Difference between `delete`, `undelete` and `destroy`
 * **`vault kv delete`** — Performs a *Soft Delete* of a specific secret version. The data is marked as deleted but physically remains in the database. The version can be restored.
 * **`vault kv undelete`** — Restores a previously soft-deleted version of a secret, making it accessible for reading again.
 * **`vault kv destroy`** — Permanently and irreversibly removes the data of the specified version from the disk/storage. It is impossible to recover this version.
 
-### ❓ Theoretical Questions (Assignment 1)
+###  Theoretical Questions (Assignment 1)
 1. **Why dev mode must never be used in production:**
    * Data is stored in-memory (`inmem`) and is lost when the container restarts.
    * Vault is automatically unsealed and unseal keys are not generated, which violates Shamir's Secret Sharing security model.
@@ -31,6 +79,27 @@
 2. **Why an application should authenticate with AppRole instead of the root token:**
    * **Principle of Least Privilege:** Roles are granted specific capabilities restricted to certain paths. A root token has absolute privileges (can delete the cluster or read unauthorized secrets).
    * **Audit and Revocation:** AppRole tokens are short-lived (short TTL) and can be easily revoked individually without re-keying the core system.
+
+### Security Policies (HCL)
+```
+app-read-policy.hcl:
+
+cat > /tmp/app-read-policy.hcl <<'EOF'
+path "secret/data/app/*" {
+  capabilities = ["read"]
+}
+path "secret/metadata/app/*" {
+  capabilities = ["read", "list"]
+}
+EOF
+
+vault policy write app-read /tmp/app-read-policy.hcl
+vault policy read app-read
+
+```
+<img width="975" height="325" alt="image" src="https://github.com/user-attachments/assets/5cfa9640-eefd-45df-b013-22f904c63404" />
+
+
 
 ---
 
