@@ -1,6 +1,6 @@
 # Homework Assignment Report: Hashicorp Vault in Docker and Kubernetes
 
-## 📁 Repository Structure
+##  Repository Structure
 ```text
 17.Hashicorp.vault/
 ├── docker-compose.yml       # Launching Vault in dev mode (Assignment 1)
@@ -12,7 +12,7 @@
 
 ---
 
-## 🔐 Homework Assignment 1: Vault in Docker Compose — KV, policy, AppRole
+##  Homework Assignment 1: Vault in Docker Compose — KV, policy, AppRole
 
 ### Vault Status in Dev-mode
 ```
@@ -185,14 +185,78 @@ kubectl exec -it -n vault vault-0 -- sh
 / $ export VAULT_TOKEN='hvs.6e'
 / $ vault secrets enable -path=secret -version=2 kv
 Success! Enabled the kv secrets engine at: secret/
-```
-# Создаем секрет 
+
+# Creating a secret
 vault kv put secret/data/app-config api_key="k8s-vso-token-2026"
+<img width="975" height="438" alt="image" src="https://github.com/user-attachments/assets/a65ad152-2aa0-42ad-bdf4-421e3bc21a56" />
+
+# Writing a read policy
+vault policy write vso-read-policy - <<EOF
+path "secret/data/app-config" {
+  capabilities = ["read"]
+}
+EOF
+Success! Uploaded policy: vso-read-policy
+
+# Enable the Kubernetes authentication method.
+vault auth enable kubernetes
+Success! Enabled kubernetes auth method at: kubernetes/
+
+# Setting up communication with the Kubernetes API server within a pod
+vault write auth/kubernetes/config kubernetes_host="https://$KUBERNETES_PORT_443_TCP
+_ADDR:443"
+Success! Data written to: auth/kubernetes/config
+
+# Create a role that binds the ServiceAccount "app-sa" in the "app-zone" namespace to the policy.
+vault write auth/kubernetes/role/vso-role \
+    bound_service_account_names=app-sa \
+    bound_service_account_namespaces=app-zone \
+    policies=vso-read-policy \
+    ttl=20m
+```
+### Install Vault Secrets Operator (VSO)
+
+```
+git clone --depth 1 --branch v1.6.0 https://github.com/hashicorp/vault-secrets-operator.git
+
+helm install vso ./vault-secrets-operator/chart \
+  -n vault-secrets-operator-system --create-namespace
+```
+
+<img width="975" height="220" alt="image" src="https://github.com/user-attachments/assets/0865859f-77aa-4bae-bfa2-02d4b03b7472" />
+
+kubectl -n vault-secrets-operator-system get pods
+kubectl get crd | grep secrets.hashicorp.com
+<img width="975" height="260" alt="image" src="https://github.com/user-attachments/assets/8beee621-c670-436c-a728-045af9d9bb00" />
 
 
+* Create and apply vso-resources.yaml.
+
+```
+max@ubuntu:~/Project/17.Vault$ kubectl apply -f vso-resources.yaml
+namespace/app-zone unchanged
+serviceaccount/app-sa unchanged
+vaultconnection.secrets.hashicorp.com/vault-connection created
+vaultauth.secrets.hashicorp.com/vault-auth created
+vaultstaticsecret.secrets.hashicorp.com/app-vault-secret created
+
+kubectl get secret k8s-native-secret -n app-zone -o yaml.
+```
+<img width="975" height="491" alt="image" src="https://github.com/user-attachments/assets/deba6c79-f377-498b-8aac-4ea11ef1c26e" />
+I applied it and verified that the native secret was created.
+
+### Deploying the test application
+* Create and apply app-deployment.yaml.
+
+kubectl apply -f app-deployment.yaml
+<img width="975" height="481" alt="image" src="https://github.com/user-attachments/assets/f2434577-630b-4912-88f9-cd2bb3ca97f1" />
+```
+max@ubuntu:~/Project/17.Vault$ kubectl get secret k8s-native-secret -n app-zone -o jsonpath='{.data.api_key}' | base64 -d
+k8s-vso-token-xxxx
+```
 
 
-### ❓ Theoretical Questions (Assignment 2)
+###  Theoretical Questions (Assignment 2)
 
 1. **What happens to the environment variables of a Pod that is already running after secret rotation:**
    * **Result:** Environment variables inside a running container (`printenv`) **do not change**, even though the native Kubernetes Secret is successfully updated on the fly by the VSO operator.
